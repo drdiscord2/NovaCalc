@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    NovaCalc — The Future of Calculation.
+    Классический (не SDK) csproj под .NET Framework 4.8 + WinForms.
+    Собирается:
+      * csc.exe из состава .NET Framework 4.8 (см. build.bat / build.ps1 — без установки VS);
+      * MSBuild из Visual Studio / Build Tools;
+      * dotnet build через Microsoft.NETFramework.ReferenceAssemblies (только на этапе сборки, CI).
+  -->
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>NovaCalc</RootNamespace>
+    <AssemblyName>NovaCalc</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <LangVersion>7.3</LangVersion>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <Prefer32Bit>false</Prefer32Bit>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="src\Program.cs" />
+    <Compile Include="src\Engine\AngleMode.cs" />
+    <Compile Include="src\Engine\CalcExceptions.cs" />
+    <Compile Include="src\Engine\Value.cs" />
+    <Compile Include="src\Engine\Lexer.cs" />
+    <Compile Include="src\Engine\CalculatorEngine.cs" />
+    <Compile Include="src\Localization\Strings.cs" />
+    <Compile Include="src\Services\MiniJson.cs" />
+    <Compile Include="src\Services\StorageService.cs" />
+    <Compile Include="src\Services\SelfTest.cs" />
+    <Compile Include="src\Converters\UnitConverter.cs" />
+    <Compile Include="src\Converters\CurrencyService.cs" />
+    <Compile Include="src\Converters\Helpers.cs" />
+    <Compile Include="src\Themes\Theme.cs" />
+    <Compile Include="src\UI\Controls.cs" />
+    <Compile Include="src\UI\MainForm.cs" />
+    <Compile Include="src\UI\Dialogs.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="app.manifest" />
+    <None Include="README.md" />
+    <None Include="BUILD.md" />
+    <None Include="LOCAL_BUILD_README.md" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" Condition="Exists('$(MSBuildToolsPath)\Microsoft.CSharp.targets')" />
+</Project>
