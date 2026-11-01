@@ -31,7 +31,7 @@ namespace NovaCalc.Services
             Check("10% == 0.1", Eval(e, "10%") == 0.1m);
             Check("2^10 == 1024", Eval(e, "2^10") == 1024m);
             Check("sqrt(9) == 3", Eval(e, "sqrt(9)") == 3m);
-            Check("Ans works", AnsCheck(e));
+            Check("Ans works", AnsCheck());
             Check("pi constant sane", Math.Abs((double)Eval(e, "pi") - Math.PI) < 1e-12);
             Check("nested functions root(3,27)==3", Eval(e, "root(27, 3)") == 3m);
             Check("factorial 5! == 120", Eval(e, "5!") == 120m);
@@ -49,11 +49,16 @@ namespace NovaCalc.Services
             Check("shl(1,4) == 16", Eval(e, "shl(1, 4)") == 16m);
             Check("shr(16,2) == 4", Eval(e, "shr(16, 2)") == 4m);
 
-            // ===== Проценты Windows-семантика =====
-            Check("200 + 10% == 220", PercentChain(e, 200m, '+', 10m) == 220m);
-            Check("200 - 10% == 180", PercentChain(e, 200m, '-', 10m) == 180m);
-            Check("200 * 10% == 20", PercentChain(e, 200m, '*', 10m) == 20m);
-            Check("200 / 10% == 2000", PercentChain(e, 200m, '/', 10m) == 2000m);
+            // ===== Проценты Windows-семантика (полный путь через парсер) =====
+            Check("200 + 10% == 220", Eval(e, "200 + 10%") == 220m);
+            Check("200 - 10% == 180", Eval(e, "200 - 10%") == 180m);
+            Check("200 * 10% == 20", Eval(e, "200 * 10%") == 20m);
+            Check("200 / 10% == 2000", Eval(e, "200 / 10%") == 2000m);
+            Check("root(16,2) == 4", Eval(e, "root(16, 2)") == 4m);
+            Check("pi*2 constant no-parens", Math.Abs((double)Eval(e, "pi * 2") - 2 * Math.PI) < 1e-12);
+            Check("e^2 constant no-parens", Math.Abs((double)Eval(e, "e^2") - Math.E * Math.E) < 1e-9);
+            Check("pow10(3) == 1000", Eval(e, "pow10(3)") == 1000m);
+            Check("pow2(10) == 1024", Eval(e, "pow2(10)") == 1024m);
 
             // ===== Ошибки =====
             bool divZeroCaught = false;
@@ -81,7 +86,8 @@ namespace NovaCalc.Services
             Check("1 kg == 1000 g", UnitConverter.Convert("mass", "kg", "g", 1m) == 1000m);
             Check("0 C == 32 F", UnitConverter.Convert("temperature", "C", "F", 0m) == 32m);
             Check("100 C == 212 F", UnitConverter.Convert("temperature", "C", "F", 100m) == 212m);
-            Check("1 GB == 1024 MiB", UnitConverter.Convert("data", "gb", "gib", 1m) == 1073741824m / 1048576m);
+            Check("1 GiB == 1024 MiB", UnitConverter.Convert("data", "gib", "mib", 1m) == 1024m);
+            Check("1 GB == 1e9 bytes", UnitConverter.Convert("data", "gb", "byte", 1m) == 1000000000m);
             Check("1 h == 3600 s", UnitConverter.Convert("time", "h", "s", 1m) == 3600m);
 
             // ===== Статистика =====
@@ -148,17 +154,11 @@ namespace NovaCalc.Services
             return e.Evaluate(expr);
         }
 
-        private static bool AnsCheck(CalculatorEngine e)
+        private static bool AnsCheck()
         {
+            var e = new CalculatorEngine();
             e.Evaluate("40+2");
             return e.Ans == 42m;
-        }
-
-        private static decimal PercentChain(CalculatorEngine e, decimal baseV, char op, decimal pct)
-        {
-            decimal part = CalculatorEngine.PercentInContext(baseV, op, pct);
-            bool dummy;
-            return e.ChainApply(op, baseV, part, out dummy);
         }
 
         private static bool AllKeysPresent(string lang)

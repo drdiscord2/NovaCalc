@@ -33,6 +33,7 @@ namespace NovaCalc.Engine
             decimal result = ParseExpression(tokens, ref pos);
             if (tokens[pos].Type != TokenType.End)
                 throw new ParseException("unexpected token '" + tokens[pos].Text + "'");
+            Ans = result; // переменная Ans обновляется после успешного вычисления
             return result;
         }
 
@@ -114,16 +115,14 @@ namespace NovaCalc.Engine
 
         private decimal ParseExpression(List<Token> t, ref int pos)
         {
-            decimal left = ParseTermPct(t, ref pos);
+            decimal left = ParseTerm(t, ref pos);
             while (true)
             {
                 Token tk = t[pos];
                 if (tk.Type == TokenType.Operator && (tk.Text == "+" || tk.Text == "-"))
                 {
                     pos++;
-                    decimal right = ParseTermPct(t, ref pos);
-                    // Процентная семантика Windows: 200 + 10% = 220, 200 - 10% = 180
-                    right = ApplyTrailingPercent(t, ref pos, right, left, tk.Text[0]);
+                    decimal right = ParseTermWithPercent(t, ref pos, left, tk.Text[0]);
                     left = tk.Text == "+" ? SafeAdd(left, right) : SafeSub(left, right);
                 }
                 else break;
@@ -131,10 +130,76 @@ namespace NovaCalc.Engine
             return left;
         }
 
+        /// <summary>Уровень term без контекстного процента (используется внутри скобок/аргументов).</summary>
         private decimal ParseTerm(List<Token> t, ref int pos)
         {
-            return ParseTermPct(t, ref pos);
+            decimal left = ParseUnary(t, ref pos);
+            while (true)
+            {
+                Token tk = t[pos];
+                if (tk.Type == TokenType.Operator && (tk.Text == "*" || tk.Text == "/"))
+                {
+                    pos++;
+                    decimal right = ParseUnary(t, ref pos);
+                    if (tk.Text == "*") left = SafeMul(left, right);
+                    else left = SafeDiv(left, right); // SafeDiv проверяет ноль
+                }
+                else break;
+            }
+            return left;
         }
+
+        /// <summary>
+        /// Разбирает правую часть '+'/'-' и применяет Windows-семантику процента:
+        /// если терм завершается постфиксным '%', он трактуется относительно левого
+        /// значения (200 + 10% = 220, 200 - 10% = 180). Иначе — обычное значение.
+        /// </summary>
+        private decimal ParseTermWithPercent(List<Token> t, ref int pos, decimal left, char op)
+        {
+            int start = pos;
+            decimal v = ParseTerm(t, ref pos);
+            if (SegmentEndsWithPercent(t, start, pos))
+                return PercentInContext(left, op, StripTrailingPercent(t, start, pos));
+            return v;
+        }
+
+        /// <summary>Ищет хвостовой постфиксный '%' в сегменте [from..to), учитывая скобки.</summary>
+        private static bool SegmentEndsWithPercent(List<Token> t, int from, int to)
+        {
+            for (int i = to - 1; i >= from; i--)
+            {
+                if (t[i].Type == TokenType.RParen) return false;
+                if (t[i].Type == TokenType.Operator && t[i].Text == "%") return true;
+            }
+            return false;
+        }
+
+        /// <summary>Возвращает «сырое» значение терма без деления на 100 (отменяет один хвостовой '%').</summary>
+        private decimal StripTrailingPercent(List<Token> t, int from, int to)
+        {
+            // Возвращаем «сырое» значение терма без одного хвостового % (10% -> 10)
+            return ParseRawTermValue(t, from, to);
+        }
+
+        /// <summary>Вычисляет значение сегмента токенов целиком через новый под-парсер.</summary>
+        private decimal ParseRawTermValue(List<Token> t, int from, int to)
+        {
+            var sub = new List<Token>();
+            for (int i = from; i < to; i++) sub.Add(t[i]);
+            sub.Add(new Token(TokenType.End, ""));
+            // Постфиксные % внутри sub убираем по одному (тот самый хвостовой),
+            // чтобы получить «сырое» значение: 10% -> 10
+            int lastPct = -1;
+            for (int i = sub.Count - 2; i >= 0; i--)
+            {
+                if (sub[i].Type == TokenType.RParen) break;
+                if (sub[i].Type == TokenType.Operator && sub[i].Text == "%") { lastPct = i; break; }
+            }
+            if (lastPct >= 0) sub.RemoveAt(lastPct);
+            int p = 0;
+            return ParseExpression(sub, ref p);
+        }
+
 
         private decimal ParseUnary(List<Token> t, ref int pos)
         {
@@ -156,9 +221,11 @@ namespace NovaCalc.Engine
                 Token tk = t[pos];
                 if (tk.Type == TokenType.Operator && tk.Text == "%")
                 {
-                    // Постфиксный % обрабатывается на уровнях term/expression
-                    // (Windows-семантика: 200 + 10% = 220; автономно 10% = 0.1).
-                    break;
+                    // Автономный постфиксный % (без бинарного оператора слева):
+                    // 10% = 0.1. В контексте "200 + 10%" процент перехватывается
+                    // выше на уровнях expression/term до захода сюда.
+                    pos++;
+                    v = SafeDiv(v, 100m);
                 }
                 else if (tk.Type == TokenType.Operator && tk.Text == "!")
                 {
@@ -256,7 +323,7 @@ namespace NovaCalc.Engine
                 case "abs": return Math.Abs(One(args));
                 case "mod": return SafeModulo(args[0], args[1]);
                 case "exp": return MathRound(Math.Exp(ToD(One(args))));
-                case "ln": return Ln(One(args));
+                case "ln": { var a0 = One(args); if (a0 == MathRound(Math.E)) return 1m; return Ln(a0); }
                 case "log": return Log(One(args));                    // log10
                 case "log2": return LogBase(One(args), 2m);
                 case "logb": return LogBase(args[0], args[1]);        // logb(x, base)

@@ -29,7 +29,8 @@ namespace NovaCalc.Converters
             switch (b)
             {
                 case Base.Hex:
-                    u = ulong.Parse(body, st | NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture); break;
+                    // AllowHexSpecifier нельзя комбинировать с AllowLeadingSign — знак уже снят выше
+                    u = ulong.Parse(body, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture); break;
                 case Base.Oct:
                     u = ParseRadix(body, 8); break;
                 case Base.Bin:
