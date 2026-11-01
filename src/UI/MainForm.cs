@@ -69,8 +69,10 @@ namespace NovaCalc.UI
                 c.MouseEnter += (a, ev) => { var t = c as Control; if (t != null && t.IsHandleCreated) ShowTip(t, text); };
         }
 
-        // Все темизируемые кнопки для перекраски
+        // Все темизируемые кнопки для перекраски (пересобирается при rebuild, чтобы не рос бесконечно)
         private readonly List<RoundButton> _allButtons = new List<RoundButton>();
+        // Статичные кнопки (заголовок/капцион), добавляются один раз
+        private readonly List<RoundButton> _staticButtons = new List<RoundButton>();
 
         private float _dpiScale = 1f;
 
@@ -138,10 +140,9 @@ namespace NovaCalc.UI
             Controls.Add(_root);
 
             float s = _dpiScale;
-            int W = (int)(380 * s);
-            int H = (int)(600 * s);
-            if (_mode == CalcMode.Scientific) W = (int)(560 * s);
-            ClientSize = new Size(W, H);
+            int W = LayoutWidth();
+            // Высота подстраивается под режим: обычный/инженерный — компактно, лабораторный — больше
+            ClientSize = new Size(W, LayoutHeight());
 
             // ---------- Верхняя строка: название + кнопка "поверх окон" + настройки + history + свернуть/закрыть
             var topRow = new Panel { Dock = DockStyle.Top, Height = (int)(40 * s) };
@@ -157,41 +158,24 @@ namespace NovaCalc.UI
             };
             topRow.Controls.Add(lblTitle);
 
-            _btnTopMost = MakeCaptionButton("▲", (int)(34 * s));
+            // Кнопки заголовка: одинаковый размер, единая формула позиционирования справа налево
+            _btnTopMost = MakeCaptionButton("📌");   // поверх всех окон
             _btnTopMost.AccessibleName = "topmost";
             _btnTopMost.Click += (a, b) => ToggleTopMost();
-            _btnTopMost.Location = new Point(ClientSize.Width - (int)(160 * s), (int)(6 * s));
-            topRow.Controls.Add(_btnTopMost);
-
-            _btnHistoryToggle = MakeCaptionButton("≡", (int)(34 * s));
+            _btnHistoryToggle = MakeCaptionButton("≡");
             _btnHistoryToggle.AccessibleName = "history";
             _btnHistoryToggle.Click += (a, b) => ToggleHistory();
-            _btnHistoryToggle.Location = new Point(ClientSize.Width - (int)(120 * s), (int)(6 * s));
-            topRow.Controls.Add(_btnHistoryToggle);
-
-            _btnSettings = MakeCaptionButton("⚙", (int)(34 * s));
+            _btnSettings = MakeCaptionButton("⚙");
             _btnSettings.AccessibleName = "settings";
             _btnSettings.Click += (a, b) => OpenSettings();
-            _btnSettings.Location = new Point(ClientSize.Width - (int)(80 * s), (int)(6 * s));
-            topRow.Controls.Add(_btnSettings);
-
-            _btnMin = MakeCaptionButton("—", (int)(34 * s));
+            _btnMin = MakeCaptionButton("—");
             _btnMin.AccessibleName = "minimize";
             _btnMin.Click += (a, b) => WindowState = FormWindowState.Minimized;
-            _btnMin.Location = new Point(ClientSize.Width - (int)(46 * s), (int)(6 * s));
-            topRow.Controls.Add(_btnMin);
-
-            _btnClose = MakeCaptionButton("✕", (int)(34 * s));
+            _btnClose = MakeCaptionButton("✕");
             _btnClose.AccessibleName = "close";
             _btnClose.Click += (a, b) => Close();
-            _btnClose.Location = new Point(ClientSize.Width - (int)(12 * s) - (int)(34 * s), (int)(6 * s));
-            // смещаем: close правее min
-            _btnClose.Location = new Point(ClientSize.Width - (int)(34 * s), (int)(6 * s));
-            _btnMin.Location = new Point(ClientSize.Width - (int)(70 * s), (int)(6 * s));
-            _btnSettings.Location = new Point(ClientSize.Width - (int)(106 * s), (int)(6 * s));
-            _btnHistoryToggle.Location = new Point(ClientSize.Width - (int)(142 * s), (int)(6 * s));
-            _btnTopMost.Location = new Point(ClientSize.Width - (int)(178 * s), (int)(6 * s));
-            topRow.Controls.Add(_btnClose);
+            topRow.Controls.AddRange(new Control[] { _btnTopMost, _btnHistoryToggle, _btnSettings, _btnMin, _btnClose });
+            LayoutCaptionButtons();
 
             // Перетаскивание окна за верхнюю область
             AttachDrag(topRow);
@@ -269,11 +253,11 @@ namespace NovaCalc.UI
             };
             _displayPanel.Controls.Add(_lblDisplay);
 
-            // ---------- История (справа от дисплея, скрыта по умолчанию) ----------
+            // ---------- История (панель над клавиатурой, скрыта по умолчанию) ----------
             _historyPanel = new Panel
             {
-                Location = new Point((int)(12 * s), (int)(182 * s)),
-                Size = new Size(ClientSize.Width - (int)(24 * s), (int)(120 * s)),
+                Location = HistoryLocation(),
+                Size = HistorySize(),
                 Visible = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -290,33 +274,32 @@ namespace NovaCalc.UI
                 if (ev.KeyCode == Keys.Enter) { HistoryActivate(a, ev); ev.SuppressKeyPress = true; }
             };
             _historyPanel.Controls.Add(_historyList);
-            var btnClearHist = MakeCaptionButton(Strings.T("history_clear"), (int)(30 * s));
+            var btnClearHist = MakeFlatButton(Strings.T("history_clear"));
             btnClearHist.AccessibleName = "clear_history";
-            btnClearHist.Width = (int)(140 * s);
             btnClearHist.Dock = DockStyle.Bottom;
             btnClearHist.Click += (a, b) => { _history.Clear(); StorageService.SaveHistory(_history); RefreshHistory(); };
             _historyPanel.Controls.Add(btnClearHist);
             _root.Controls.Add(_historyPanel);
 
-            // ---------- Область клавиатуры ----------
+            // ---------- Область тела: клавиатура (стандарт/научный) или лабораторная панель ----------
+            // Единая формула геометрии: всё ниже дисплея вычисляется из ClientSize, без магических чисел.
             _keypad = new TableLayoutPanel
             {
                 ColumnCount = 4,
-                RowCount = 6,
-                Location = new Point((int)(12 * s), (int)(182 * s)),
-                Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)(194 * s)),
+                RowCount = 7,
+                Location = BodyLocation(),
+                Size = BodySize(),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
             for (int c = 0; c < 4; c++) _keypad.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
-            for (int r = 0; r < 6; r++) _keypad.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 6f));
+            for (int r = 0; r < 7; r++) _keypad.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 7f));
             _root.Controls.Add(_keypad);
 
-            // Научная дополнительная панель (видна в инженерном режиме) — слева, расширяем окно
+            // Научная дополнительная панель (видна в инженерном режиме) — слева, окно шире
             _sciPanel = new Panel
             {
-                Location = new Point((int)(12 * s), (int)(182 * s)),
-                Width = (int)(170 * s),
-                Height = ClientSize.Height - (int)(194 * s),
+                Location = BodyLocation(),
+                Size = SciBodySize(),
                 Visible = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left
             };
@@ -325,8 +308,8 @@ namespace NovaCalc.UI
             // Лабораторная панель
             _labPanel = new Panel
             {
-                Location = new Point((int)(12 * s), (int)(182 * s)),
-                Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)(194 * s)),
+                Location = BodyLocation(),
+                Size = BodySize(),
                 Visible = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -338,16 +321,110 @@ namespace NovaCalc.UI
             RefreshHistory();
         }
 
-        private RoundButton MakeCaptionButton(string text, int h)
+        // ===== Единая геометрия компоновки (учитывает DPI и состояние истории) =====
+        private const double StdW = 380, SciW = 600, LabW = 440;   // ширины в DIP
+        private const double TopBarH = 40, ModeRowY = 44, ModeRowH = 34, DisplayY = 84, DisplayH = 92, Pad = 12, Gap = 10;
+
+        private int LayoutWidth()
+        {
+            float s = _dpiScale;
+            double w = _mode == CalcMode.Scientific ? SciW : (_mode == CalcMode.Laboratory ? LabW : StdW);
+            return (int)(w * s);
+        }
+
+        /// <summary>Минимальная высота окна под текущий режим (клавиатуре нужно ~7 рядов).</summary>
+        private int LayoutHeight()
+        {
+            float s = _dpiScale;
+            double bodyRows = _mode == CalcMode.Laboratory ? 300 : 330; // высота тела в DIP
+            double hist = _historyPanel != null && _historyPanel.Visible ? HistH + 6 : 0;
+            return (int)((DisplayY + DisplayH + Gap + hist + bodyRows + 14) * s);
+        }
+
+        /// <summary>Точка начала области тела (под дисплеем/историей).</summary>
+        private Point BodyLocation()
+        {
+            float s = _dpiScale;
+            double topY = DisplayY + DisplayH + Gap;
+            if (_historyPanel != null && _historyPanel.Visible) topY += HistH + 6;
+            return new Point((int)(Pad * s), (int)(topY * s));
+        }
+
+        private const double HistH = 140; // высота панели истории в DIP
+
+        private Point HistoryLocation()
+        {
+            float s = _dpiScale;
+            return new Point((int)(Pad * s), (int)((DisplayY + DisplayH + Gap) * s));
+        }
+
+        private Size HistorySize()
+        {
+            float s = _dpiScale;
+            return new Size(ClientSize.Width - (int)(2 * Pad * s), (int)(HistH * s));
+        }
+
+        private Size BodySize()
+        {
+            Point p = BodyLocation();
+            return new Size(ClientSize.Width - 2 * p.X, Math.Max((int)(120 * _dpiScale), ClientSize.Height - p.Y - (int)(Gap * _dpiScale)));
+        }
+
+        /// <summary>Размер sci-панели: фиксированная ширина, остальное — клавиатуре.</summary>
+        private Size SciBodySize()
+        {
+            Point p = BodyLocation();
+            return new Size((int)(206 * _dpiScale), Math.Max((int)(120 * _dpiScale), ClientSize.Height - p.Y - (int)(Gap * _dpiScale)));
+        }
+
+        private Size KeypadSizeForSci()
+        {
+            Point p = BodyLocation();
+            int sciW = (int)(206 * _dpiScale);
+            return new Size(Math.Max((int)(150 * _dpiScale), ClientSize.Width - sciW - p.X - (int)(Gap * _dpiScale)),
+                            Math.Max((int)(120 * _dpiScale), ClientSize.Height - p.Y - (int)(Gap * _dpiScale)));
+        }
+
+        private void LayoutCaptionButtons()
+        {
+            float s = _dpiScale;
+            int bs = (int)(30 * s);          // размер квадратной кнопки
+            int y = (int)(5 * s);
+            int right = ClientSize.Width - (int)(8 * s);
+            Action<RoundButton, int> place = (b, idx) => { if (b != null) b.SetBounds(right - bs - idx * (bs + (int)(2 * s)), y, bs, bs); };
+            place(_btnClose, 0);
+            place(_btnMin, 1);
+            place(_btnSettings, 2);
+            place(_btnHistoryToggle, 3);
+            place(_btnTopMost, 4);
+        }
+
+        private RoundButton MakeCaptionButton(string text)
         {
             var b = new RoundButton
             {
                 Text = text,
-                Height = h,
-                Width = h,
-                Radius = 6f * _dpiScale,
+                Height = (int)(30 * _dpiScale),
+                Width = (int)(30 * _dpiScale),
+                Radius = 8f * _dpiScale,
+                Font = new Font("Segoe UI", 9.5f * _dpiScale),
+                CaptionStyle = true
+            };
+            _staticButtons.Add(b);
+            _allButtons.Add(b);
+            return b;
+        }
+
+        private RoundButton MakeFlatButton(string text)
+        {
+            var b = new RoundButton
+            {
+                Text = text,
+                Height = (int)(28 * _dpiScale),
+                Radius = 8f * _dpiScale,
                 Font = new Font("Segoe UI", 9f * _dpiScale)
             };
+            _staticButtons.Add(b);
             _allButtons.Add(b);
             return b;
         }
@@ -376,6 +453,8 @@ namespace NovaCalc.UI
 
         private void BuildStandardKeypad()
         {
+            // Пересборка: чистим список темизируемых кнопок до статичных (без утечки при смене языка)
+            _allButtons.RemoveRange(_staticButtons.Count, _allButtons.Count - _staticButtons.Count);
             _keypad.Controls.Clear();
             _keypad.RowCount = 7;
             _keypad.RowStyles.Clear();
@@ -463,26 +542,31 @@ namespace NovaCalc.UI
         {
             _sciPanel.Controls.Clear();
             float s = _dpiScale;
-            // сетка доп. кнопок 5 колонок x N рядов
+            // сетка доп. кнопок 4 колонки x N рядов + нижний ряд систем счисления
             var grid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 5,
-                AutoScroll = true
+                ColumnCount = 4,
+                AutoScroll = false,
+                Padding = new Padding(0)
             };
-            for (int c = 0; c < 5; c++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20f));
+            for (int c = 0; c < 4; c++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
             _sciPanel.Controls.Add(grid);
 
             string[][] sciKeys =
             {
-                new[] { "sin", "sin(" }, new[] { "cos", "cos(" }, new[] { "tan", "tan(" }, new[] { "^", "^" }, new[] { "π", "pi(" },
-                new[] { "asin", "asin(" }, new[] { "acos", "acos(" }, new[] { "atan", "atan(" }, new[] { "xʸ", "^" }, new[] { "e", "e(" },
-                new[] { "sinh", "sinh(" }, new[] { "cosh", "cosh(" }, new[] { "tanh", "tanh(" }, new[] { "√y", "root(" }, new[] { "Ans", "ans" },
-                new[] { "log", "log(" }, new[] { "ln", "ln(" }, new[] { "exp", "exp(" }, new[] { "n!", "!" }, new[] { "|x|", "abs(" },
-                new[] { "10ˣ", "pow10(" }, new[] { "2ˣ", "pow2(" }, new[] { "mod", "mod(" }, new[] { "( )", "(" }, new[] { ",", "," },
-                new[] { "AND", "and(" }, new[] { "OR", "or(" }, new[] { "XOR", "xor(" }, new[] { "NOT", "not(" }, new[] { "<<", "shl(" },
-                new[] { ">>", "shr(" }, new[] { "Deg", "deg" }, new[] { "Rad", "rad" }, new[] { "Grad", "grad" }, new[] { "E", "E" },
+                new[] { "sin", "sin(" }, new[] { "cos", "cos(" }, new[] { "tan", "tan(" }, new[] { "π", "pi(" },
+                new[] { "asin", "asin(" }, new[] { "acos", "acos(" }, new[] { "atan", "atan(" }, new[] { "eˣ", "e(" },
+                new[] { "sinh", "sinh(" }, new[] { "cosh", "cosh(" }, new[] { "tanh", "tanh(" }, new[] { "√y", "root(" },
+                new[] { "log", "log(" }, new[] { "ln", "ln(" }, new[] { "exp", "exp(" }, new[] { "|x|", "abs(" },
+                new[] { "xʸ", "^" }, new[] { "10ˣ", "pow10(" }, new[] { "2ˣ", "pow2(" }, new[] { "n!", "!" },
+                new[] { "mod", "mod(" }, new[] { "Ans", "ans" }, new[] { "(", "(" }, new[] { ")", ")" },
+                new[] { "AND", "and(" }, new[] { "OR", "or(" }, new[] { "XOR", "xor(" }, new[] { "NOT", "not(" },
+                new[] { "<<", "shl(" }, new[] { ">>", "shr(" }, new[] { ",", "," }, new[] { "E", "E" },
+                new[] { "Deg", "deg" }, new[] { "Rad", "rad" }, new[] { "Grad", "grad" }, new[] { "⌫", "back" },
             };
+            int rows = (sciKeys.Length + 3) / 4;
+            for (int r = 0; r < rows; r++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / rows));
             int row = 0, col = 0;
             foreach (var k in sciKeys)
             {
@@ -490,25 +574,25 @@ namespace NovaCalc.UI
                 {
                     Text = LocalizeSci(k[0]),
                     Tag = "sci:" + k[1],
+                    AccessibleName = k[1],
                     Dock = DockStyle.Fill,
                     Margin = new Padding((int)(2 * s)),
-                    Radius = 7f * s,
-                    Font = new Font("Segoe UI", 8.5f * s)
+                    Radius = 8f * s,
+                    Font = new Font("Segoe UI", 9f * s)
                 };
                 string ins = k[1]; string raw = k[0];
                 b.Click += (a, ev) => SciInsert(ins, raw);
                 grid.Controls.Add(b, col, row);
                 _allButtons.Add(b);
                 col++;
-                if (col >= 5) { col = 0; row++; grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34 * s)); }
+                if (col >= 4) { col = 0; row++; }
             }
-            if (row < grid.RowStyles.Count) { } // заполнение строк уже добавлено
 
             // Ряд систем счисления DEC HEX OCT BIN
             var baseRow = new FlowLayoutPanel
             {
                 Dock = DockStyle.Bottom,
-                Height = (int)(36 * s),
+                Height = (int)(34 * s),
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false
             };
@@ -517,11 +601,11 @@ namespace NovaCalc.UI
                 var bb = new RoundButton
                 {
                     Text = nb,
-                    Width = (int)(38 * s),
-                    Height = (int)(30 * s),
+                    Width = (int)(46 * s),
+                    Height = (int)(28 * s),
                     Margin = new Padding((int)(2 * s)),
-                    Radius = 7f * s,
-                    Font = new Font("Segoe UI", 8.5f * s),
+                    Radius = 8f * s,
+                    Font = new Font("Segoe UI", 9f * s),
                     Tag = "base:" + nb
                 };
                 string n = nb;
@@ -557,8 +641,8 @@ namespace NovaCalc.UI
                 case "rad": _engine.AngleMode = AngleMode.Radians; break;
                 case "grad": _engine.AngleMode = AngleMode.Gradians; break;
                 case "ans": AppendExpr("Ans"); break;
-                case "pi(": AppendExpr("pi("); break;
-                case "e(": AppendExpr("e"); break;
+                case "pi(": AppendExpr("pi*"); break;   // константа π без скобок
+                case "e(": AppendExpr("e^"); break;    // экспонента e^...
                 case "E": AppendExpr("E"); break;
                 case "(": AppendExpr("("); break;
                 case ")": AppendExpr(")"); break;
@@ -567,9 +651,25 @@ namespace NovaCalc.UI
                 case "!": AppendExpr("!"); break;
                 case "pow10(": AppendExpr("10^("); break;
                 case "pow2(": AppendExpr("2^("); break;
+                case "back": Backspace(); return;   // кнопка ⌫ в sci-панели
                 default: AppendExpr(token); break;
             }
             UpdateDisplay();
+        }
+
+        /// <summary>
+        /// Backspace в инженерном режиме: удаляет не один символ, а целый «токен» —
+        /// имя функции вместе со скобкой ("sin(" → ""), оператор с пробелом (", " → ""), обычный символ.
+        /// </summary>
+        private void BackspaceExpr()
+        {
+            if (_exprInput.Length == 0) return;
+            // многобуквенные функции/константы с открытой скобкой
+            string[] funcTokens = { "asin(", "acos(", "atan(", "sinh(", "cosh(", "tanh(", "sin(", "cos(", "tan(", "log(", "mod(", "not(", "shl(", "shr(", "abs(", "exp(", "ln(", "root(", "xor(" };
+            foreach (var f in funcTokens)
+                if (_exprInput.EndsWith(f)) { _exprInput = _exprInput.Substring(0, _exprInput.Length - f.Length); return; }
+            if (_exprInput.EndsWith(", ")) { _exprInput = _exprInput.Substring(0, _exprInput.Length - 2); return; }
+            _exprInput = _exprInput.Substring(0, _exprInput.Length - 1);
         }
 
         private void AppendExpr(string t)
@@ -1203,7 +1303,7 @@ namespace NovaCalc.UI
         {
             if (_mode == CalcMode.Scientific)
             {
-                if (_exprInput.Length > 0) _exprInput = _exprInput.Substring(0, _exprInput.Length - 1);
+                BackspaceExpr();
                 UpdateDisplay();
                 return;
             }
@@ -1331,32 +1431,34 @@ namespace NovaCalc.UI
         private void ToggleHistory()
         {
             _historyPanel.Visible = !_historyPanel.Visible;
+            // при открытии истории увеличиваем окно, чтобы клавиатура не обрезалась
+            int needH = LayoutHeight();
+            if (ClientSize.Height < needH) ClientSize = new Size(ClientSize.Width, needH);
             RelayoutBody();
         }
 
         private void RelayoutBody()
         {
-            float s = _dpiScale;
-            int topY = 182;
-            if (_historyPanel.Visible)
+            // Единая перекладка: история, тело (клавиатура/sci/lab) — всё из формул геометрии
+            if (_historyPanel == null || _keypad == null) return;
+            _historyPanel.Location = HistoryLocation();
+            _historyPanel.Size = HistorySize();
+            Point p = BodyLocation();
+            if (_mode == CalcMode.Scientific)
             {
-                _historyPanel.Location = new Point((int)(12 * s), (int)(topY * s));
-                _keypad.Location = new Point((int)(12 * s), (int)((topY + 128) * s));
-                _keypad.Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)((topY + 140) * s));
-                _sciPanel.Location = new Point((int)(12 * s), (int)((topY + 128) * s));
-                _sciPanel.Height = ClientSize.Height - (int)((topY + 140) * s);
-                _labPanel.Location = new Point((int)(12 * s), (int)((topY + 128) * s));
-                _labPanel.Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)((topY + 140) * s));
+                _sciPanel.SetBounds(p.X, p.Y, SciBodySize().Width, SciBodySize().Height);
+                Size ks = KeypadSizeForSci();
+                _keypad.SetBounds(p.X + ks.Width + (int)(Gap * _dpiScale), p.Y, ks.Width, ks.Height);
             }
             else
             {
-                _keypad.Location = new Point((int)(12 * s), (int)(topY * s));
-                _keypad.Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)((topY + 12) * s));
-                _sciPanel.Location = new Point((int)(12 * s), (int)(topY * s));
-                _sciPanel.Height = ClientSize.Height - (int)((topY + 12) * s);
-                _labPanel.Location = new Point((int)(12 * s), (int)(topY * s));
-                _labPanel.Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)((topY + 12) * s));
+                Size bs = BodySize();
+                _keypad.SetBounds(p.X, p.Y, bs.Width, bs.Height);
+                _sciPanel.SetBounds(p.X, p.Y, SciBodySize().Width, bs.Height);
+                _labPanel.SetBounds(p.X, p.Y, bs.Width, bs.Height);
             }
+            LayoutCaptionButtons();
+            Invalidate(false);
         }
 
         // ============================================================
@@ -1367,29 +1469,17 @@ namespace NovaCalc.UI
         {
             _mode = m;
             _historyNavIndex = -1;
-            float s = _dpiScale;
-            int W = (int)(380 * s);
-            if (m == CalcMode.Scientific) W = (int)(560 * s);
-            if (ClientSize.Width != W)
+            int W = LayoutWidth();
+            int H = LayoutHeight();
+            if (ClientSize.Width != W || ClientSize.Height < H)
             {
-                int cx = Left + ClientSize.Width / 2;
-                ClientSize = new Size(W, ClientSize.Height);
-                Left = cx - W / 2;
+                int cx = Left + ClientSize.Width / 2, cy = Top + ClientSize.Height / 2;
+                ClientSize = new Size(W, Math.Max(H, ClientSize.Height));
+                Left = cx - W / 2; Top = cy - ClientSize.Height / 2;
             }
-            _keypad.Visible = m == CalcMode.Standard;
+            _keypad.Visible = m == CalcMode.Standard || m == CalcMode.Scientific;
             _sciPanel.Visible = m == CalcMode.Scientific;
             _labPanel.Visible = m == CalcMode.Laboratory;
-
-            if (m == CalcMode.Standard)
-            {
-                _keypad.Location = new Point((int)(12 * s), (int)(182 * s));
-                _keypad.Size = new Size(ClientSize.Width - (int)(24 * s), ClientSize.Height - (int)(194 * s));
-            }
-            else if (m == CalcMode.Scientific)
-            {
-                _keypad.Location = new Point((int)(190 * s), (int)(182 * s));
-                _keypad.Size = new Size(ClientSize.Width - (int)(202 * s), ClientSize.Height - (int)(194 * s));
-            }
             RelayoutBody();
 
             // подсветка активной кнопки режима
@@ -1573,6 +1663,13 @@ namespace NovaCalc.UI
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            // В лабораторном режиме поля ввода работают как обычные текстовые поля:
+            // не перехватываем у них ввод (иначе нельзя напечатать «(», «x», «-» и т.п.).
+            Control focused = ActiveControl;
+            if (_mode == CalcMode.Laboratory &&
+                (focused is TextBox || focused is ComboBox || focused is ListView || focused is DateTimePicker))
+                return base.ProcessCmdKey(ref msg, keyData);
+
             switch (keyData)
             {
                 case Keys.Escape:
@@ -1690,21 +1787,15 @@ namespace NovaCalc.UI
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
-            if (_modeSwitch != null)
+            if (_modeSwitch != null && _modeButtons != null)
             {
-                _modeSwitch.Size = new Size(ClientSize.Width - (int)(24 * _dpiScale), _modeSwitch.Height);
-                int bw = (ClientSize.Width - (int)(24 * _dpiScale) - (int)(16 * _dpiScale)) / 3;
-                foreach (var b in _modeButtons) b.Width = bw;
-                // пересчёт позиций caption-кнопок
-                if (_btnClose != null)
-                {
-                    int bs = (int)(34 * _dpiScale);
-                    _btnClose.Left = ClientSize.Width - bs;
-                    _btnMin.Left = ClientSize.Width - 2 * bs - (int)(4 * _dpiScale);
-                    _btnSettings.Left = ClientSize.Width - 3 * bs - (int)(8 * _dpiScale);
-                    _btnHistoryToggle.Left = ClientSize.Width - 4 * bs - (int)(12 * _dpiScale);
-                    _btnTopMost.Left = ClientSize.Width - 5 * bs - (int)(16 * _dpiScale);
-                }
+                float s = _dpiScale;
+                _modeSwitch.Size = new Size(ClientSize.Width - (int)(2 * Pad * s), _modeSwitch.Height);
+                int bw = (ClientSize.Width - (int)((2 * Pad + 16) * s)) / 3;
+                foreach (var b in _modeButtons) if (b != null) b.Width = Math.Max((int)(40 * s), bw);
+                // дисплей тянется за шириной
+                if (_displayPanel != null) _displayPanel.Width = ClientSize.Width - (int)(2 * Pad * s);
+                RelayoutBody();
             }
         }
     }

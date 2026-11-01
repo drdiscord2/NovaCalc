@@ -26,6 +26,8 @@ namespace NovaCalc.Themes
         public System.Drawing.Color Border;
         public System.Drawing.Color ErrorText;
         public System.Drawing.Color HistoryBg;
+        public System.Drawing.Color CaptionText;        // текст кнопок заголовка (свернуть/закрыть/…)
+        public System.Drawing.Color ControlChrome;      // фон стандартных контролов (ComboBox/ListView/DateTimePicker)
         public float CornerRadius = 10f;                // скругление (в DIP, масштабируется DPI)
 
         /// <summary>Тёмная тема по умолчанию.</summary>
@@ -52,6 +54,8 @@ namespace NovaCalc.Themes
                 Border = System.Drawing.Color.FromArgb(70, 76, 105),
                 ErrorText = System.Drawing.Color.FromArgb(255, 120, 120),
                 HistoryBg = System.Drawing.Color.FromArgb(30, 33, 48),
+                CaptionText = System.Drawing.Color.FromArgb(205, 210, 228),
+                ControlChrome = System.Drawing.Color.FromArgb(42, 46, 66),
             };
         }
 
@@ -79,6 +83,8 @@ namespace NovaCalc.Themes
                 Border = System.Drawing.Color.FromArgb(200, 206, 224),
                 ErrorText = System.Drawing.Color.FromArgb(200, 40, 40),
                 HistoryBg = System.Drawing.Color.FromArgb(248, 249, 253),
+                CaptionText = System.Drawing.Color.FromArgb(70, 76, 100),
+                ControlChrome = System.Drawing.Color.FromArgb(255, 255, 255),
             };
         }
 

@@ -15,6 +15,8 @@ namespace NovaCalc.UI
         public Color PressColor = Color.FromArgb(36, 40, 58);
         public Color TextColor = Color.White;
         public bool IsAccent = false;
+        /// <summary>Кнопки заголовка: плоские, подложка только на hover; close — красная.</summary>
+        public bool CaptionStyle = false;
 
         private bool _hover;
         private bool _press;
@@ -39,19 +41,35 @@ namespace NovaCalc.UI
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Parent != null ? Parent.BackColor : BackColor);
 
-            Color fill = IsAccent ? AccentShade() : BaseShade();
-
             RectangleF r = new RectangleF(0.5f, 0.5f, Width - 1.2f, Height - 1.2f);
+            bool closeHover = CaptionStyle && AccessibleName == "close" && _hover;
             using (GraphicsPath path = RoundedPath(r, Radius))
             {
-                using (var b = new SolidBrush(fill))
-                    g.FillPath(b, path);
-                // тонкая рамка для акрила
-                using (var p = new Pen(Color.FromArgb(IsAccent ? 0 : 40, 255, 255, 255), 1f))
-                    g.DrawPath(p, path);
+                if (CaptionStyle)
+                {
+                    if (closeHover)
+                        using (var b = new SolidBrush(Color.FromArgb(198, 48, 62)))
+                            g.FillPath(b, path);
+                    else if (_hover || _press)
+                        using (var b = new SolidBrush(_press ? Color.FromArgb(70, 255, 255, 255) : Color.FromArgb(36, 255, 255, 255)))
+                            g.FillPath(b, path);
+                }
+                else
+                {
+                    Color fill = IsAccent ? AccentShade() : BaseShade();
+                    using (var b = new SolidBrush(fill))
+                        g.FillPath(b, path);
+                    // лёгкий верхний блик для глубины
+                    using (var gloss = new LinearGradientBrush(Rectangle.Round(r), Color.FromArgb(26, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90f))
+                        g.FillPath(gloss, path);
+                    // тонкая рамка для акрила
+                    using (var p = new Pen(Color.FromArgb(IsAccent ? 0 : 40, 255, 255, 255), 1f))
+                        g.DrawPath(p, path);
+                }
             }
 
-            TextRenderer.DrawText(g, Text, Font, ClientRectangle, Enabled ? TextColor : Color.Gray,
+            Color textColor = closeHover ? Color.White : (Enabled ? TextColor : Color.Gray);
+            TextRenderer.DrawText(g, Text, Font, ClientRectangle, textColor,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
         }
 
