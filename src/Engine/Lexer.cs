@@ -55,8 +55,9 @@ namespace NovaCalc.Engine
 
                 if (c == ' ' || c == '\t' || c == '\u00A0') { i++; continue; }
 
-                // Число: цифры, точка/запятая, экспонента
-                if (char.IsDigit(c) || c == '.' || c == ',')
+                // Число: только если начинается с цифры или точки, за которой идёт цифра.
+                // Запятая здесь — разделитель аргументов функций, а не начало числа.
+                if (char.IsDigit(c) || (c == '.' && i + 1 < n && char.IsDigit(input[i + 1])))
                 {
                     int start = i;
                     bool dotSeen = false;
@@ -96,12 +97,14 @@ namespace NovaCalc.Engine
                     {
                         char ch = input[i];
                         if (char.IsDigit(ch)) { i++; }
-                        else if ((ch == '.' || ch == ',') && !dotSeen)
+                        else if (ch == '.' && !dotSeen)
                         {
-                            // не считаем разделителем точку в конце без цифр после
+                            // десятичная точка; запятая внутри числа не допускается —
+                            // она является разделителем аргументов функций (см. парсер)
                             dotSeen = true; i++;
                         }
-                        else if ((ch == 'e' || ch == 'E') && i + 1 < n &&
+                        else if ((ch == 'e' || ch == 'E') && i > start && char.IsLetterOrDigit(input[i - 1]) &&
+                                 i + 1 < n &&
                                  (char.IsDigit(input[i + 1]) || ((input[i + 1] == '+' || input[i + 1] == '-') && i + 2 < n && char.IsDigit(input[i + 2]))))
                         {
                             i++; // e
@@ -110,7 +113,7 @@ namespace NovaCalc.Engine
                         }
                         else break;
                     }
-                    string numText = input.Substring(start, i - start).Replace(',', '.');
+                    string numText = input.Substring(start, i - start);
                     if (numText.EndsWith(".")) numText = numText.Substring(0, numText.Length - 1);
                     decimal value;
                     if (!decimal.TryParse(numText, NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent | NumberStyles.AllowLeadingSign,

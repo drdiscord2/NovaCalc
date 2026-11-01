@@ -94,6 +94,15 @@ namespace NovaCalc.Engine
             }
         }
 
+        /// <summary>
+        /// Алиас: выражения с процентами вычисляются сразу через Evaluate
+        /// (процентная семантика Windows встроена в основной парсер).
+        /// </summary>
+        public decimal EvaluatePercent(string expression)
+        {
+            return Evaluate(expression);
+        }
+
         // ===== Парсер (рекурсивный спуск) =====
         // Грамматика:
         //   expr      := term (('+'|'-') term)*
@@ -105,14 +114,16 @@ namespace NovaCalc.Engine
 
         private decimal ParseExpression(List<Token> t, ref int pos)
         {
-            decimal left = ParseTerm(t, ref pos);
+            decimal left = ParseTermPct(t, ref pos);
             while (true)
             {
                 Token tk = t[pos];
                 if (tk.Type == TokenType.Operator && (tk.Text == "+" || tk.Text == "-"))
                 {
                     pos++;
-                    decimal right = ParseTerm(t, ref pos);
+                    decimal right = ParseTermPct(t, ref pos);
+                    // Процентная семантика Windows: 200 + 10% = 220, 200 - 10% = 180
+                    right = ApplyTrailingPercent(t, ref pos, right, left, tk.Text[0]);
                     left = tk.Text == "+" ? SafeAdd(left, right) : SafeSub(left, right);
                 }
                 else break;
@@ -122,19 +133,7 @@ namespace NovaCalc.Engine
 
         private decimal ParseTerm(List<Token> t, ref int pos)
         {
-            decimal left = ParseUnary(t, ref pos);
-            while (true)
-            {
-                Token tk = t[pos];
-                if (tk.Type == TokenType.Operator && (tk.Text == "*" || tk.Text == "/"))
-                {
-                    pos++;
-                    decimal right = ParseUnary(t, ref pos);
-                    left = tk.Text == "*" ? SafeMul(left, right) : SafeDiv(left, right);
-                }
-                else break;
-            }
-            return left;
+            return ParseTermPct(t, ref pos);
         }
 
         private decimal ParseUnary(List<Token> t, ref int pos)
@@ -157,9 +156,9 @@ namespace NovaCalc.Engine
                 Token tk = t[pos];
                 if (tk.Type == TokenType.Operator && tk.Text == "%")
                 {
-                    // Унарный процент вне цепочки: 10% = 0.1
-                    pos++;
-                    v = SafeDiv(v, 100m);
+                    // Постфиксный % обрабатывается на уровнях term/expression
+                    // (Windows-семантика: 200 + 10% = 220; автономно 10% = 0.1).
+                    break;
                 }
                 else if (tk.Type == TokenType.Operator && tk.Text == "!")
                 {
@@ -206,8 +205,13 @@ namespace NovaCalc.Engine
                 // Константы
                 switch (name)
                 {
-                    case "pi": return MathRound(Math.PI);
-                    case "e": return MathRound(Math.E);
+                    case "pi":
+                        // разрешаем и «pi», и «pi(...)»
+                        if (t[pos].Type != TokenType.LParen) return MathRound(Math.PI);
+                        break;
+                    case "e":
+                        if (t[pos].Type != TokenType.LParen) return MathRound(Math.E);
+                        break;
                     case "ans": return Ans;
                 }
                 // Функции: ожидаем аргументы в скобках
@@ -245,8 +249,10 @@ namespace NovaCalc.Engine
             {
                 case "sqrt": return Sqrt(One(args));
                 case "cbrt": return MathRound(Math.Pow(ToD(One(args)), 1.0 / 3.0));
-                case "root": return Root(args[0], args[1]);           // root(x, n) — корень n-й степени из x
+                case "root": return Root(args[1], args[0]);           // root(x, n) — корень n-й степени из x
                 case "pow": return Pow(args[0], args[1]);             // pow(x, y)
+                case "pow10": return Pow(10m, One(args));
+                case "pow2": return Pow(2m, One(args));
                 case "abs": return Math.Abs(One(args));
                 case "mod": return SafeModulo(args[0], args[1]);
                 case "exp": return MathRound(Math.Exp(ToD(One(args))));
