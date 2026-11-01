@@ -5,6 +5,17 @@ using NovaCalc.Services;
 
 namespace NovaCalc.Converters
 {
+    /// <summary>WebClient с таймаутом (стандартный WebClient не имеет свойства Timeout).</summary>
+    internal class TimeoutWebClient : System.Net.WebClient
+    {
+        public int TimeoutMs = 6000;
+        protected override System.Net.WebRequest GetWebRequest(Uri address)
+        {
+            var req = base.GetWebRequest(address);
+            if (req != null) req.Timeout = TimeoutMs;
+            return req;
+        }
+    }
     /// <summary>Одна валюта с курсом к базовой (USD).</summary>
     public class Currency
     {
@@ -127,11 +138,10 @@ namespace NovaCalc.Converters
         {
             try
             {
-                using (var wc = new System.Net.WebClient())
+                using (var wc = new TimeoutWebClient())
                 {
                     var proxy = System.Net.WebRequest.DefaultWebProxy;
                     if (proxy != null) { proxy.Credentials = System.Net.CredentialCache.DefaultCredentials; wc.Proxy = proxy; }
-                    wc.Timeout = 6000; // не блокируем UI надолго
                     string json = wc.DownloadString("https://open.er-api.com/v6/latest/USD");
                     var root = MiniJson.GetObj(MiniJson.Parse(json));
                     var ratesObj = MiniJson.GetObj(root["rates"]);

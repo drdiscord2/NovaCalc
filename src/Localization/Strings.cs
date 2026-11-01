@@ -122,17 +122,22 @@ namespace NovaCalc.Localization
         /// <summary>Текущий язык интерфейса.</summary>
         public static string Current = "en";
 
+        /// <summary>Безопасное приведение decimal к double (без переполнения на краях диапазона).</summary>
+        public static double SafeToDouble(decimal value)
+        {
+            try { return (double)value; }
+            catch (OverflowException) { return value > 0m ? double.MaxValue : double.MinValue; }
+        }
+
         /// <summary>Форматирует decimal для отображения в UI с учётом локали и настройки числа знаков.</summary>
         public static string FormatNumber(decimal value, int maxDigits, bool groupSeparators, bool scientific)
         {
             CultureInfo ci = CultureFor(Current);
-            if (scientific && (Math.Abs((double)value) >= 1e16m ||
-                (value != 0m && Math.Abs((double)value) < 1e-9)))
+            double dv = SafeToDouble(value);
+            if (scientific && (Math.Abs(dv) >= 1e16 ||
+                (value != 0m && Math.Abs(dv) < 1e-9)))
             {
-                double d;
-                try { d = (double)value; }
-                catch (OverflowException) { d = value > 0 ? double.MaxValue : double.MinValue; }
-                string s = d.ToString("E" + Math.Max(2, Math.Min(maxDigits, 9)), ci);
+                string s = dv.ToString("E" + Math.Max(2, Math.Min(maxDigits, 9)), ci);
                 return s;
             }
             decimal v = value;

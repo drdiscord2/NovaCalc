@@ -245,7 +245,7 @@ namespace NovaCalc.Engine
             {
                 case "sqrt": return Sqrt(One(args));
                 case "cbrt": return MathRound(Math.Pow(ToD(One(args)), 1.0 / 3.0));
-                case "root": return Root(args[0], args[1]);           // root(n, x) — корень n-й степени
+                case "root": return Root(args[0], args[1]);           // root(x, n) — корень n-й степени из x
                 case "pow": return Pow(args[0], args[1]);             // pow(x, y)
                 case "abs": return Math.Abs(One(args));
                 case "mod": return SafeModulo(args[0], args[1]);
@@ -321,7 +321,13 @@ namespace NovaCalc.Engine
         /// <summary>Проверяет, приводит ли умножение к переполнению decimal.</summary>
         private static bool IsMulOverflow(decimal a, decimal b)
         {
-            try { checked(a * b); return false; }
+            try
+            {
+                // checked-контекст через локальную функцию совместим и со старыми компиляторами C#
+                Func<decimal> mul = delegate { checked { return a * b; } };
+                mul();
+                return false;
+            }
             catch (OverflowException) { return true; }
         }
 

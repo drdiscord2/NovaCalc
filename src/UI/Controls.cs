@@ -42,16 +42,17 @@ namespace NovaCalc.UI
             Color fill = IsAccent ? AccentShade() : BaseShade();
 
             RectangleF r = new RectangleF(0.5f, 0.5f, Width - 1.2f, Height - 1.2f);
-            using (var path = RoundedPath(r, Radius))
-            using (var b = new SolidBrush(fill))
-                g.FillPath(b, path);
-
-            // тонкая рамка для акрила
-            using (var p = new Pen(Color.FromArgb(IsAccent ? 0 : 40, 255, 255, 255), 1f))
-                g.DrawPath(p, path);
+            using (GraphicsPath path = RoundedPath(r, Radius))
+            {
+                using (var b = new SolidBrush(fill))
+                    g.FillPath(b, path);
+                // тонкая рамка для акрила
+                using (var p = new Pen(Color.FromArgb(IsAccent ? 0 : 40, 255, 255, 255), 1f))
+                    g.DrawPath(p, path);
+            }
 
             TextRenderer.DrawText(g, Text, Font, ClientRectangle, Enabled ? TextColor : Color.Gray,
-                TextFlags.HorizontalCenter | TextFlags.VerticalCenter | TextFlags.SingleLine);
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
         }
 
         private Color BaseShade()
@@ -103,20 +104,22 @@ namespace NovaCalc.UI
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Parent != null ? Parent.BackColor : SystemColors.Control);
             var rect = new RectangleF(0.5f, 0.5f, Width - 1.2f, Height - 1.2f);
-            using (var path = RoundButton.RoundedPath(rect, Radius))
-            using (var b = new SolidBrush(FillColor))
-                g.FillPath(b, path);
-            if (DrawBorder)
-                using (var p = new Pen(BorderColor, 1f))
-                    g.DrawPath(p, path);
+            using (GraphicsPath path = RoundButton.RoundedPath(rect, Radius))
+            {
+                using (var b = new SolidBrush(FillColor))
+                    g.FillPath(b, path);
+                if (DrawBorder)
+                    using (var p = new Pen(BorderColor, 1f))
+                        g.DrawPath(p, path);
+            }
         }
     }
 
     /// <summary>Фоновая панель с вертикальным градиентом (градиентный фон окна).</summary>
     public class GradientPanel : Panel
     {
-        public Color Top = Color.FromArgb(24, 26, 38);
-        public Color Bottom = Color.FromArgb(16, 17, 26);
+        public Color ColorTop = Color.FromArgb(24, 26, 38);
+        public Color ColorBottom = Color.FromArgb(16, 17, 26);
 
         public GradientPanel()
         {
@@ -126,7 +129,7 @@ namespace NovaCalc.UI
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            using (var br = new LinearGradientBrush(new Rectangle(0, 0, Width, Math.Max(1, Height)), Top, Bottom, LinearGradientMode.Vertical))
+            using (var br = new LinearGradientBrush(new Rectangle(0, 0, Width, Math.Max(1, Height)), ColorTop, ColorBottom, LinearGradientMode.Vertical))
                 g.FillRectangle(br, ClientRectangle);
         }
     }

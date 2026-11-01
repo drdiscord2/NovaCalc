@@ -33,7 +33,7 @@ namespace NovaCalc.Services
             Check("sqrt(9) == 3", Eval(e, "sqrt(9)") == 3m);
             Check("Ans works", AnsCheck(e));
             Check("pi constant sane", Math.Abs((double)Eval(e, "pi") - Math.PI) < 1e-12);
-            Check("nested functions root(3,27)==3", Eval(e, "root(3, 27)") == 3m);
+            Check("nested functions root(3,27)==3", Eval(e, "root(27, 3)") == 3m);
             Check("factorial 5! == 120", Eval(e, "5!") == 120m);
             Check("abs(-7) == 7", Eval(e, "abs(-7)") == 7m);
             Check("mod(10,3) == 1", Eval(e, "mod(10, 3)") == 1m);

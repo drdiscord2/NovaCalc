@@ -1399,8 +1399,8 @@ namespace NovaCalc.UI
         private void ApplyTheme()
         {
             _theme = ThemePalette.For(_settings.Theme);
-            _root.Top = _theme.BackgroundTop;
-            _root.Bottom = _theme.BackgroundBottom;
+            _root.ColorTop = _theme.BackgroundTop;
+            _root.ColorBottom = _theme.BackgroundBottom;
             BackColor = _theme.BackgroundBottom;
             _displayPanel.FillColor = _theme.Panel;
             _displayPanel.BorderColor = _theme.Border;
@@ -1518,9 +1518,9 @@ namespace NovaCalc.UI
         // ПЕРЕТАСКИВАНИЕ ОКНА
         // ============================================================
 
-        [DllImport("user32.dll")]
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
-        [DllImport("user32.dll")]
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HTCAPTION = 2;
@@ -1548,8 +1548,7 @@ namespace NovaCalc.UI
                 case Keys.Escape:
                 case Keys.Delete:
                     ClearAll(); return true;
-                case Keys.Enter:
-                case Keys.NumPadEnter:
+                case Keys.Enter: // включает NumPad Enter (общий код 0x0D)
                     DoEquals(); return true;
                 case Keys.Back:
                     Backspace(); return true;

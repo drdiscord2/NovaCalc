@@ -25,17 +25,18 @@ namespace NovaCalc.Converters
             if (b == Base.Oct && body.Length > 2 && body[0] == '0' && (body[1] == 'o' || body[1] == 'O')) body = body.Substring(2);
             if (body.Length == 0) throw new FormatException("empty digits");
             ulong u;
+            NumberStyles st = NumberStyles.AllowLeadingSign;
             switch (b)
             {
                 case Base.Hex:
-                    u = Convert.ToUInt64(body, 16); break;
+                    u = ulong.Parse(body, st | NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture); break;
                 case Base.Oct:
-                    u = Convert.ToUInt64(body, 8); break;
+                    u = ParseRadix(body, 8); break;
                 case Base.Bin:
-                    u = Convert.ToUInt64(body, 2); break;
+                    u = ParseRadix(body, 2); break;
                 default:
                     // decimal — через ulong, чтобы поддержать значения больше long.MaxValue
-                    u = Convert.ToUInt64(body, 10); break;
+                    u = ulong.Parse(body, st, CultureInfo.InvariantCulture); break;
             }
             if (neg) return unchecked((long)(0UL - u));
             if (u > long.MaxValue) throw new OverflowException("out of int64 range");
@@ -57,6 +58,22 @@ namespace NovaCalc.Converters
                 default:
                     return value.ToString(CultureInfo.InvariantCulture);
             }
+        }
+
+        /// <summary>Разбор строки в произвольной системе (2/8) в ulong без зависимости от Convert.</summary>
+        private static ulong ParseRadix(string s, int radix)
+        {
+            bool neg = false;
+            int i = 0;
+            if (s.Length > 0 && (s[0] == '-' || s[0] == '+')) { neg = s[0] == '-'; i = 1; }
+            ulong acc = 0UL;
+            for (; i < s.Length; i++)
+            {
+                int d = (int)char.GetNumericValue(s[i]);
+                if (d < 0 || d >= radix) throw new FormatException("bad digit");
+                acc = acc * (ulong)radix + (ulong)d;
+            }
+            return neg ? unchecked(0UL - acc) : acc;
         }
 
         private static string ToBaseString(long value, int radix)
