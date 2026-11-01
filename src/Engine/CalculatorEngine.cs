@@ -150,7 +150,10 @@ namespace NovaCalc.Engine
                         pos++;
                         _hasPercentBase = true; _percentBaseOp = tk.Text[0]; _percentBaseLeft = left;
                         decimal right = ParseTermWithPercent(t, ref pos, left, tk.Text[0]);
-                        _hasPercentBase = savedBase; _percentBaseOp = savedBaseOp; _percentBaseLeft = savedBaseVal;
+                        // ВАЖНО: восстанавливаем флаг контекстного процента, а не сбрасываем его —
+                        // иначе «50%+25%» на втором шаге теряет базу 50 и считает 25% автономно (0.25).
+                        if (savedBase) { _percentBaseOp = savedBaseOp; _percentBaseLeft = savedBaseVal; }
+                        else { _hasPercentBase = false; }
                         left = tk.Text == "+" ? SafeAdd(left, right) : SafeSub(left, right);
                     }
                     else break;
