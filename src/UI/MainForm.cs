@@ -1088,11 +1088,17 @@ namespace NovaCalc.UI
                 UpdateDisplay();
                 return;
             }
+            // Процент — часть текущего ввода: новый символ «срезает» постфиксный %,
+            // как в калькуляторе Windows (10% затем 5 -> 10.5).
+            if (_percentPending && _entryBuffer.EndsWith("%"))
+            {
+                _entryBuffer = _entryBuffer.Substring(0, _entryBuffer.Length - 1);
+                _percentPending = false;
+            }
             if (_startNewEntry || _justEvaluated)
             {
                 _entryBuffer = "";
                 _startNewEntry = false;
-                if (_justEvaluated && _pendingOp == '\0') { } // начинаем заново
                 _justEvaluated = false;
             }
             if (_entryBuffer == "0" && ch != ".") _entryBuffer = "";
@@ -1103,7 +1109,12 @@ namespace NovaCalc.UI
         private void AppendDecimalSeparator()
         {
             if (_mode == CalcMode.Scientific) { AppendExpr("."); UpdateDisplay(); return; }
-            if (_startNewEntry) { _entryBuffer = "0"; _startNewEntry = false; }
+            if (_percentPending && _entryBuffer.EndsWith("%"))
+            {
+                _entryBuffer = _entryBuffer.Substring(0, _entryBuffer.Length - 1);
+                _percentPending = false;
+            }
+            if (_startNewEntry) { _entryBuffer = "0"; _startNewEntry = false; _justEvaluated = false; }
             if (!_entryBuffer.Contains(".")) _entryBuffer += ".";
             UpdateDisplay();
         }
@@ -1116,8 +1127,12 @@ namespace NovaCalc.UI
                 try { return _engine.Evaluate(_exprInput); }
                 catch (Exception) { return 0m; }
             }
+            string s = _entryBuffer;
+            bool pct = s.EndsWith("%");
+            if (pct) s = s.Substring(0, s.Length - 1);
             decimal v;
-            if (decimal.TryParse(_entryBuffer, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return v;
+            if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
+                return pct ? v / 100m : v;
             return 0m;
         }
 
@@ -1129,64 +1144,67 @@ namespace NovaCalc.UI
                 UpdateDisplay();
                 return;
             }
-            decimal input = ParseEntryAndApplyPercent();
-            if (_pendingOp != '\0' && !_startNewEntry)
+            if (_pendingOp == '\0')
             {
-                _accValue = ChainCompute(_pendingOp, _accValue, input);
-                _expressionText = FormatOut(_accValue) + " " + OpSymbol(op);
+                // Первый оператор в цепочке: левый операнд = текущий ввод (или прошлый результат)
+                _accValue = CurrentInputValue();
+                _engine.Ans = _accValue;
             }
-            else if (_pendingOp != '\0')
+            else if (!_startNewEntry)
             {
-                // повторная смена оператора
-                _expressionText = FormatOut(_accValue) + " " + OpSymbol(op);
+                // 6 + 7 × ... — промежуточное вычисление с процентной семантикой Windows
+                _accValue = PercentChainStep(_pendingOp, _accValue, _exprOfEntry(), op);
+                _engine.Ans = _accValue;
             }
-            else
-            {
-                _accValue = _justEvaluated ? _accValue : input;
-                _expressionText = FormatOut(_accValue) + " " + OpSymbol(op);
-            }
+            // инак — просто замена ожидающего оператора
+            _chainExpr = FormatOut(_accValue) + " " + OpSymbol(op);
             _pendingOp = op;
             _startNewEntry = true;
             _justEvaluated = false;
             _percentPending = false;
-            _entryBuffer = input.ToString(CultureInfo.InvariantCulture);
+            _entryBuffer = "";
             UpdateDisplay();
+        }
+
+        /// <summary>Строковое представление текущего ввода для движка (с постфиксным %, если он был нажат).</summary>
+        private string _exprOfEntry()
+        {
+            string s = _entryBuffer.Length > 0 ? _entryBuffer : "0";
+            return _percentPending ? s + "%" : s;
+        }
+
+        /// <summary>
+        /// Шаг цепочки «a op b% c» через основной парсер движка — единая реализация
+        /// процентов Windows (200+10%=220, 200*10%=20, 200/10%=2000), без дублирования логики в UI.
+        /// </summary>
+        private decimal PercentChainStep(char prevOp, decimal a, string bExpr, char nextOp)
+        {
+            try
+            {
+                return _engine.Evaluate(a.ToString(CultureInfo.InvariantCulture) + " " + prevOp + " " +
+                                        bExpr + " " + nextOp + " 0");
+            }
+            catch (CalcException ex) { ShowError(LocalizedError(ex)); throw; }
         }
 
         private decimal ParseEntryAndApplyPercent()
         {
-            decimal input = CurrentInputValue();
-            if (_percentPending && _pendingOp != '\0')
-            {
-                input = CalculatorEngine.PercentInContext(_accValue, _pendingOp, input);
-                _percentPending = false;
-            }
-            return input;
-        }
-
-        private decimal ChainCompute(char op, decimal a, decimal b)
-        {
-            bool dummy;
-            return _engine.ChainApply(op, a, b, out dummy);
+            // Реликтовый путь сохранён для совместимости; сейчас вся процентная
+            // логика живёт в строке ввода ('%'-постфикс) и в движке.
+            return CurrentInputValue();
         }
 
         private void OnPercentClick(object sender, EventArgs e)
         {
             if (_mode == CalcMode.Scientific) { AppendExpr("%"); UpdateDisplay(); return; }
-            decimal v = CurrentInputValue();
-            if (_pendingOp != '\0')
-            {
-                // 200 + 10% -> показать 20 (часть), результат применится при =
-                decimal part = CalculatorEngine.PercentInContext(_accValue, _pendingOp, v);
-                _entryBuffer = part.ToString(CultureInfo.InvariantCulture);
-                _percentPending = false; // уже преобразовано
-                _startNewEntry = true;
-            }
-            else
-            {
-                _entryBuffer = (v / 100m).ToString(CultureInfo.InvariantCulture);
-                _startNewEntry = true;
-            }
+            // Процент — часть текущего ввода: просто добавляем постфикс '%' к строке ввода.
+            // Значение пересчитает движок при операторе или «=» (единая логика процентов).
+            if (_startNewEntry && _entryBuffer.Length == 0)
+                _entryBuffer = FormatOut(_pendingOp != '\0' ? _accValue : _engine.Ans);
+            _justEvaluated = false;
+            if (!_entryBuffer.EndsWith("%")) _entryBuffer += "%";
+            _percentPending = true;
+            _startNewEntry = false;
             UpdateDisplay();
         }
 
@@ -1213,6 +1231,7 @@ namespace NovaCalc.UI
                     AddToHistory(_exprInput, res);
                     _expressionText = _exprInput + " =";
                     _exprInput = res.ToString(CultureInfo.InvariantCulture);
+                    _exprJustEvaluated = true;
                     ShowOnDisplay(res);
                 }
                 catch (CalcException ex) { ShowError(LocalizedError(ex)); }
@@ -1220,27 +1239,30 @@ namespace NovaCalc.UI
                 UpdateDisplay();
                 return;
             }
-            decimal input = ParseEntryAndApplyPercent();
+            // Единый путь: собираем строку цепочки и вычисляем её основным парсером движка.
+            // Это гарантирует идентичность результатов обычного и инженерного режимов
+            // и корректную процентную семантику Windows на всех шагах цепочки.
+            string expr;
+            if (_pendingOp != '\0')
+                expr = _accValue.ToString(CultureInfo.InvariantCulture) + " " + _pendingOp + " " + _exprOfEntry();
+            else
+                expr = _entryBuffer.Length > 0 ? _entryBuffer : (_justEvaluated ? _engine.Ans.ToString(CultureInfo.InvariantCulture) : "0");
             decimal result;
-            _accValueBefore = _accValue;
-            try
-            {
-                if (_pendingOp == '\0') result = input;
-                else result = ChainCompute(_pendingOp, _accValue, input);
-            }
+            try { result = _engine.Evaluate(expr); }
             catch (CalcException ex) { ShowError(LocalizedError(ex)); return; }
+            catch (Exception ex) { ShowError(ex.Message); return; }
             _accValue = result;
             _engine.Ans = result;
-            _expressionText = (_pendingOp != '\0' ? FormatOut(_accValueBefore) + " " + OpSymbol(_pendingOp) + " " + FormatOut(input) : FormatOut(result)) + " =";
+            _expressionText = expr + " =";
             _pendingOp = '\0';
             _startNewEntry = true;
             _justEvaluated = true;
-            AddToHistory(_expressionText.TrimEnd('=').TrimEnd(), result);
+            _percentPending = false;
+            _entryBuffer = "";
+            AddToHistory(expr, result);
             ShowOnDisplay(result);
             UpdateDisplay();
         }
-
-        private decimal _accValueBefore;
 
         private void Negate()
         {
@@ -1248,6 +1270,8 @@ namespace NovaCalc.UI
             decimal v = CurrentInputValue();
             _entryBuffer = (-v).ToString(CultureInfo.InvariantCulture);
             _startNewEntry = false;
+            _justEvaluated = false;
+            _percentPending = false;
             UpdateDisplay();
         }
 
@@ -1266,6 +1290,8 @@ namespace NovaCalc.UI
                     AddToHistory(exprPrefix + FormatOut(v) + exprSuffix, res);
                     _entryBuffer = res.ToString(CultureInfo.InvariantCulture);
                     _startNewEntry = true;
+                    _justEvaluated = false;
+                    _percentPending = false;
                 }
                 _engine.Ans = res;
                 ShowOnDisplay(res);
@@ -1307,9 +1333,11 @@ namespace NovaCalc.UI
                 UpdateDisplay();
                 return;
             }
-            if (_startNewEntry) return;
-            if (_entryBuffer.Length > 0) _entryBuffer = _entryBuffer.Substring(0, _entryBuffer.Length - 1);
-            if (_entryBuffer.Length == 0) _startNewEntry = true;
+            // «Сброс» (как в калькуляторе Windows): очистка текущего ввода целиком.
+            _entryBuffer = "";
+            _percentPending = false;
+            _startNewEntry = true;
+            _justEvaluated = false;
             UpdateDisplay();
         }
 

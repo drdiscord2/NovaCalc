@@ -26,6 +26,12 @@ namespace NovaCalc.Engine
         /// <summary>Вычисляет выражение целиком (инженерный режим).</summary>
         public decimal Evaluate(string expression)
         {
+            // Сброс внутреннего состояния на входе — парсер должен быть чистым
+            // при каждом вызове (иначе «залипшие» флаги портят следующие вычисления).
+            _inParenContext = false;
+            _hasPercentBase = false;
+            _percentBaseOp = '\0';
+            _percentBaseLeft = 0m;
             if (string.IsNullOrWhiteSpace(expression))
                 throw new ParseException("empty expression");
             var tokens = Lexer.Tokenize(expression);
