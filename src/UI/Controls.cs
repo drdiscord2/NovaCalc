@@ -152,6 +152,43 @@ namespace NovaCalc.UI
         }
     }
 
+    /// <summary>
+    /// Прозрачная контейнерная панель: не рисуетOwn фон, а копирует фон родителя.
+    /// Нужна для корректной отрисовки дочерних RoundButton/Label поверх градиента и GlassPanel
+    /// (в WinForms BackColor=Transparent без этого даёт чёрные/серые артефакты).
+    /// </summary>
+    public class TransparentPanel : Panel
+    {
+        public TransparentPanel()
+        {
+            SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
+            BackColor = Color.Transparent;
+        }
+
+        protected override void PaintBackground(PaintEventArgs eBack, Rectangle client, Rectangle clip)
+        {
+            if (Parent != null)
+            {
+                // рисуем фон родителя со смещением — дети получают настоящий градиент под собой
+                Point origin = Location;
+                if (Parent is GlassPanel)
+                {
+                    // родитель-стекло: перерисовываем его в себя напрямую
+                    using (var state = eBack.Graphics.Save())
+                    {
+                        eBack.Graphics.TranslateTransform(-origin.X, -origin.Y);
+                        Parent.InvokePaint(Parent, eBack);
+                        eBack.Graphics.Restore(state);
+                    }
+                    return;
+                }
+                eBack.Graphics.CopyFromScreen(PointToScreen(Point.Empty), Point.Empty, Size);
+                return;
+            }
+            base.PaintBackground(eBack, client, clip);
+        }
+    }
+
     /// <summary>Метка с фиксированным цветом текста (перекрашивается при смене темы).</summary>
     public class ThemedLabel : Label
     {

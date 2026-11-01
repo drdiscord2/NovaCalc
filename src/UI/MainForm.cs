@@ -33,6 +33,7 @@ namespace NovaCalc.UI
         private bool _justEvaluated;          // только что нажали "="
         private bool _percentPending;         // в текущем вводе нажат % — применять семантику Windows
         private string _expressionText = "";  // отображение выражения над дисплеем
+        private string _chainExpr = "";       // накопленное строковое представление цепочки (для истории)
 
         private CalcMode _mode = CalcMode.Standard;
         private NumberSystemsBaseNum _numBase = NumberSystemsBaseNum.Dec;
@@ -641,8 +642,8 @@ namespace NovaCalc.UI
                 case "rad": _engine.AngleMode = AngleMode.Radians; break;
                 case "grad": _engine.AngleMode = AngleMode.Gradians; break;
                 case "ans": AppendExpr("Ans"); break;
-                case "pi(": AppendExpr("pi*"); break;   // константа π без скобок
-                case "e(": AppendExpr("e^"); break;    // экспонента e^...
+                case "pi(": AppendExpr("pi"); break;    // константа π: вставляется как значение
+                case "e(": AppendExpr("e"); break;     // константа e: вставляется как значение
                 case "E": AppendExpr("E"); break;
                 case "(": AppendExpr("("); break;
                 case ")": AppendExpr(")"); break;
@@ -698,14 +699,44 @@ namespace NovaCalc.UI
                 default: b = NumberSystemsBaseNum.Dec; break;
             }
             _numBase = b;
-            // конвертируем текущий дисплей в выбранную систему
+            // конвертируем текущее значение в выбранную систему счисления
             try
             {
                 long cur = ConvertDisplayToInt64();
                 _exprInput = NovaCalc.Converters.NumberSystems.Format(cur, MapBase(b));
-                UpdateDisplay();
+                _exprJustEvaluated = false;
             }
-            catch (Exception) { ShowError(Strings.T("err_invalidop")); }
+            catch (Exception) { ShowError(Strings.T("err_invalidop")); return; }
+            UpdateNumBaseButtons();
+            UpdateDisplay();
+        }
+
+        /// <summary>Подсветка активной кнопки DEC/HEX/OCT/BIN в sci-панели.</summary>
+        private void UpdateNumBaseButtons()
+        {
+            if (_allButtons == null) return;
+            foreach (var btn in _allButtons)
+            {
+                var t = btn.Tag as string;
+                if (t == null || !t.StartsWith("base:")) continue;
+                bool active = ("base:" + NumBaseName()) == t;
+                btn.NormalColor = active ? _theme.Accent : _theme.FuncButton;
+                btn.TextColor = active ? _theme.AccentText : _theme.FuncText;
+                btn.HoverColor = ThemePalette.HoverOf(_theme, btn.NormalColor);
+                btn.PressColor = ThemePalette.PressOf(_theme, btn.NormalColor);
+                btn.Invalidate();
+            }
+        }
+
+        private string NumBaseName()
+        {
+            switch (_numBase)
+            {
+                case NumberSystemsBaseNum.Hex: return "HEX";
+                case NumberSystemsBaseNum.Oct: return "OCT";
+                case NumberSystemsBaseNum.Bin: return "BIN";
+                default: return "DEC";
+            }
         }
 
         private long ConvertDisplayToInt64()
@@ -1095,8 +1126,11 @@ namespace NovaCalc.UI
                 _entryBuffer = _entryBuffer.Substring(0, _entryBuffer.Length - 1);
                 _percentPending = false;
             }
+            // Новый ввод: после старта/смены значения ИЛИ сразу после «=» без нового оператора
+            // (иначе «6×6==» дублировало бы результат, а «= затем 7» портил последний ответ).
             if (_startNewEntry || _justEvaluated)
             {
+                if (_justEvaluated && _pendingOp == '\0') { _accValue = 0m; _chainExpr = ""; _expressionText = ""; }
                 _entryBuffer = "";
                 _startNewEntry = false;
                 _justEvaluated = false;
@@ -1114,7 +1148,11 @@ namespace NovaCalc.UI
                 _entryBuffer = _entryBuffer.Substring(0, _entryBuffer.Length - 1);
                 _percentPending = false;
             }
-            if (_startNewEntry) { _entryBuffer = "0"; _startNewEntry = false; _justEvaluated = false; }
+            if (_startNewEntry || _justEvaluated)
+            {
+                if (_justEvaluated && _pendingOp == '\0') { _accValue = 0m; _chainExpr = ""; _expressionText = ""; }
+                _entryBuffer = "0"; _startNewEntry = false; _justEvaluated = false;
+            }
             if (!_entryBuffer.Contains(".")) _entryBuffer += ".";
             UpdateDisplay();
         }
@@ -1156,8 +1194,12 @@ namespace NovaCalc.UI
                 _accValue = PercentChainStep(_pendingOp, _accValue, _exprOfEntry(), op);
                 _engine.Ans = _accValue;
             }
-            // инак — просто замена ожидающего оператора
-            _chainExpr = FormatOut(_accValue) + " " + OpSymbol(op);
+            else
+            {
+                // Просто замена ожидающего оператора: 6 + ... → 6 × ...
+                _chainExpr = FormatOut(_accValue) + " " + OpSymbol(op);
+            }
+            _expressionText = _chainExpr;
             _pendingOp = op;
             _startNewEntry = true;
             _justEvaluated = false;
@@ -1242,24 +1284,36 @@ namespace NovaCalc.UI
             // Единый путь: собираем строку цепочки и вычисляем её основным парсером движка.
             // Это гарантирует идентичность результатов обычного и инженерного режимов
             // и корректную процентную семантику Windows на всех шагах цепочки.
-            string expr;
+            string expr;      // машиночитаемое выражение для движка
+            string shown;     // человекочитаемое выражение для истории/строки
             if (_pendingOp != '\0')
+            {
                 expr = _accValue.ToString(CultureInfo.InvariantCulture) + " " + _pendingOp + " " + _exprOfEntry();
+                shown = _chainExpr + " " + _exprOfEntry();
+            }
+            else if (_entryBuffer.Length > 0)
+            {
+                expr = _entryBuffer; shown = _entryBuffer;
+            }
             else
-                expr = _entryBuffer.Length > 0 ? _entryBuffer : (_justEvaluated ? _engine.Ans.ToString(CultureInfo.InvariantCulture) : "0");
+            {
+                expr = _justEvaluated ? _engine.Ans.ToString(CultureInfo.InvariantCulture) : "0";
+                shown = expr;
+            }
             decimal result;
             try { result = _engine.Evaluate(expr); }
             catch (CalcException ex) { ShowError(LocalizedError(ex)); return; }
             catch (Exception ex) { ShowError(ex.Message); return; }
             _accValue = result;
             _engine.Ans = result;
-            _expressionText = expr + " =";
+            _expressionText = shown + " =";
+            _chainExpr = FormatOut(result);   // «=» продолжает цепочку от результата
             _pendingOp = '\0';
             _startNewEntry = true;
             _justEvaluated = true;
             _percentPending = false;
             _entryBuffer = "";
-            AddToHistory(expr, result);
+            AddToHistory(shown, result);
             ShowOnDisplay(result);
             UpdateDisplay();
         }
@@ -1311,9 +1365,11 @@ namespace NovaCalc.UI
 
         private void ClearAll()
         {
+            // Полная очистка: значение, цепочка, ввод, выражение, движок (Ans)
             _accValue = 0m; _pendingOp = '\0'; _entryBuffer = ""; _startNewEntry = true;
-            _justEvaluated = false; _percentPending = false; _expressionText = "";
-            _exprInput = "";
+            _justEvaluated = false; _percentPending = false; _expressionText = ""; _chainExpr = "";
+            _exprInput = ""; _exprJustEvaluated = false;
+            _engine.Reset();
             _historyNavIndex = -1;
             ShowOnDisplayRaw("");
             UpdateDisplay();
@@ -1321,7 +1377,10 @@ namespace NovaCalc.UI
 
         private void ClearEntry()
         {
-            _entryBuffer = ""; _startNewEntry = true; _exprInput = "";
+            // CE чистит ТЕКУЩИЙ ВВОД целиком (как в Windows): 36 → 0, а не 36 → 6.
+            // Накопленная цепочка (левый операнд и оператор) сохраняется.
+            _entryBuffer = ""; _percentPending = false; _startNewEntry = true; _justEvaluated = false;
+            _exprInput = ""; _exprJustEvaluated = false;
             UpdateDisplay();
         }
 
@@ -1499,16 +1558,19 @@ namespace NovaCalc.UI
             _historyNavIndex = -1;
             int W = LayoutWidth();
             int H = LayoutHeight();
-            if (ClientSize.Width != W || ClientSize.Height < H)
+            if (ClientSize.Width != W || ClientSize.Height != H)
             {
                 int cx = Left + ClientSize.Width / 2, cy = Top + ClientSize.Height / 2;
-                ClientSize = new Size(W, Math.Max(H, ClientSize.Height));
-                Left = cx - W / 2; Top = cy - ClientSize.Height / 2;
+                SuspendLayout();
+                ClientSize = new Size(W, H);
+                Left = cx - W / 2; Top = cy - H / 2;
+                ResumeLayout(true);
             }
             _keypad.Visible = m == CalcMode.Standard || m == CalcMode.Scientific;
             _sciPanel.Visible = m == CalcMode.Scientific;
             _labPanel.Visible = m == CalcMode.Laboratory;
             RelayoutBody();
+            UpdateNumBaseButtons();
 
             // подсветка активной кнопки режима
             for (int i = 0; i < 3; i++)

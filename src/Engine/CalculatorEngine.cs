@@ -15,6 +15,9 @@ namespace NovaCalc.Engine
     {
         public AngleMode AngleMode = AngleMode.Degrees;
 
+        /// <summary>Полный сброс состояния движка (кнопка C): Ans=0, память не трогаем.</summary>
+        public void Reset() { Ans = 0m; }
+
         /// <summary>Последний результат (Ans).</summary>
         public decimal Ans = 0m;
 
