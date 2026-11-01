@@ -134,10 +134,22 @@ namespace NovaCalc.Localization
         {
             CultureInfo ci = CultureFor(Current);
             double dv = SafeToDouble(value);
-            if (scientific && (Math.Abs(dv) >= 1e16 ||
+            if (scientific && !double.IsNaN(dv) && !double.IsInfinity(dv) && (Math.Abs(dv) >= 1e16 ||
                 (value != 0m && Math.Abs(dv) < 1e-9)))
             {
+                // нормализуем экспоненциальную запись: "1,23456E+021" -> "1,23456E+21"
                 string s = dv.ToString("E" + Math.Max(2, Math.Min(maxDigits, 9)), ci);
+                int eIdx = s.LastIndexOfAny(new[] { 'E', 'e' });
+                if (eIdx >= 0)
+                {
+                    string mant = s.Substring(0, eIdx + 1);
+                    string expPart = s.Substring(eIdx + 1);
+                    char sign = '+';
+                    if (expPart.Length > 0 && (expPart[0] == '+' || expPart[0] == '-')) { sign = expPart[0]; expPart = expPart.Substring(1); }
+                    long ev;
+                    if (long.TryParse(expPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out ev))
+                        s = mant + sign + ev.ToString(CultureInfo.InvariantCulture);
+                }
                 return s;
             }
             decimal v = value;
@@ -146,6 +158,8 @@ namespace NovaCalc.Localization
                 try { v = Math.Round(v, maxDigits, MidpointRounding.AwayFromZero); }
                 catch (ArgumentOutOfRangeException) { }
             }
+            // убираем хвостовые нули scale'а decimal (20.0 -> 20), иначе вывод неаккуратный
+            v = NovaCalc.Engine.CalculatorEngine.Normalize(v);
             string fmt = groupSeparators ? "#,##0.###############################" : "0.###############################";
             try
             {
