@@ -1,0 +1,49 @@
+name: Build NovaCalc
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH (VS Build Tools)
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Release
+        shell: cmd
+        run: msbuild NovaCalc.csproj /t:Rebuild /p:Configuration=Release /v:minimal /nologo
+
+      - name: Run selftest
+        shell: cmd
+        run: |
+          bin\Release\NovaCalc.exe --selftest
+          if errorlevel 1 exit /b 1
+
+      - name: Package single file
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item bin\Release\NovaCalc.exe dist\NovaCalc.exe -Force
+          Compress-Archive -Path dist\NovaCalc.exe -DestinationPath dist\NovaCalc.zip -Force
+
+      - name: Upload artifact (NovaCalc.zip with one exe inside)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovaCalc
+          path: dist/NovaCalc.zip
+          if-no-files-found: error
+
+      - name: Draft release with NovaCalc.exe (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/NovaCalc.exe

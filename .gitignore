@@ -1,2 +1,16 @@
+*.dll
 *.exe
-*.log
+*.o
+*.obj
+*.out
+*.so
+*.a
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.env.*

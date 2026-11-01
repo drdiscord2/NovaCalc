@@ -36,7 +36,6 @@ namespace NovaCalc.UI
 
         private CalcMode _mode = CalcMode.Standard;
         private NumberSystemsBaseNum _numBase = NumberSystemsBaseNum.Dec;
-        private bool _angleDeg = true, _angleRad, _angleGrad;
 
         // ===== UI элементы =====
         private GradientPanel _root;
@@ -52,7 +51,23 @@ namespace NovaCalc.UI
         private Panel _labPanel;      // содержимое лабораторного режима
         private ListBox _historyList;
         private Panel _historyPanel;
-        private ToolTip _toolTip = new ToolTip();
+        private ToolTip _toolTip = new ToolTip();          // подсказки к кнопкам режимов/операций
+
+        /// <summary>Показать короткую подсказку над кнопкой (используется при наведении).</summary>
+        private void ShowTip(Control c, string text)
+        {
+            if (_toolTip.GetToolTip(c) != text) _toolTip.SetToolTip(c, text);
+            _toolTip.Show(text, c, 0, -c.Height - 4, 1200);
+        }
+
+        // Подвеска подсказки на конкретную кнопку один раз (не дублировать обработчики при смене темы)
+        private readonly HashSet<Control> _tipHooked = new HashSet<Control>();
+        private void ShowTipOnHover(Control c, string text)
+        {
+            _toolTip.SetToolTip(c, text);
+            if (_tipHooked.Add(c))
+                c.MouseEnter += (a, ev) => { var t = c as Control; if (t != null && t.IsHandleCreated) ShowTip(t, text); };
+        }
 
         // Все темизируемые кнопки для перекраски
         private readonly List<RoundButton> _allButtons = new List<RoundButton>();
@@ -530,7 +545,9 @@ namespace NovaCalc.UI
 
         // Ввод выражения в инженерном режиме: строка _exprInput
         private string _exprInput = "";
-        private bool _exprStartNew = true;
+
+        // После «=» следующий символ начинает новое выражение; оператор — продолжает с Ans
+        private bool _exprJustEvaluated;
 
         private void SciInsert(string token, string raw)
         {
@@ -557,8 +574,17 @@ namespace NovaCalc.UI
 
         private void AppendExpr(string t)
         {
+            // После «=»: оператор продолжает вычисление от Ans, остальное начинает новое выражение
+            if (_exprJustEvaluated)
+            {
+                _exprJustEvaluated = false;
+                string op = t.Trim();
+                if (op.Length == 1 && ("+-*/^%".IndexOf(op[0]) >= 0))
+                    _exprInput = "Ans";
+                else
+                    _exprInput = "";
+            }
             _exprInput += t;
-            _exprStartNew = false;
         }
 
         private void SetNumberBase(string name)
@@ -1419,6 +1445,10 @@ namespace NovaCalc.UI
                 b.TextColor = accent ? _theme.AccentText : ClassifyTextColor(b);
                 b.HoverColor = ThemePalette.HoverOf(_theme, b.NormalColor);
                 b.PressColor = ThemePalette.PressOf(_theme, b.NormalColor);
+                // Подсказки при наведении: для sci-кнопок — их «сырое» имя функции
+                var tag = b.Tag as string;
+                if (tag != null && tag.StartsWith("sci:"))
+                    ShowTipOnHover(b, tag.Substring(4));
                 b.Invalidate();
             }
             // режимные кнопки перекрасит SwitchMode
